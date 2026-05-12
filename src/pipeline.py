@@ -3,7 +3,7 @@ import json
 from datetime import datetime
 
 from extract_pdf import extract_pdf
-from clean_text import clean_text
+from clean_text import clean_extracted_document
 from segment_document import segment_document
 from apply_rules import apply_rules
 from semantic_extract import semantic_extract
@@ -65,7 +65,7 @@ class CampusIssuePipeline:
             try:
                 print(f"\nProcessing segment {index}/{len(segments)}")
 
-                normalized_record = self._run_rule_extraction(segment, index)
+                normalized_record = self._run_rule_extraction(segment, index, cleaned_text)
 
                 if self.use_llm:
                     enriched_record = self._run_semantic_extraction(
@@ -105,34 +105,34 @@ class CampusIssuePipeline:
 
         return extracted
 
-    def _run_cleaning(self, extracted: dict) -> str:
+    def _run_cleaning(self, extracted: dict) -> dict:
         print("Step 2: cleaning text...")
 
-        raw_text = extracted["text"]
-        cleaned_text = clean_text(raw_text)
+        cleaned = clean_extracted_document(extracted)
 
-        output_path = self.extracted_dir / f"{self.pdf_path.stem}_cleaned.txt"
-        output_path.write_text(cleaned_text, encoding="utf-8")
+        output_path = self.extracted_dir / f"{self.pdf_path.stem}_cleaned.json"
+        self._save_json(output_path, cleaned)
 
-        return cleaned_text
+        return cleaned
 
-    def _run_segmentation(self, cleaned_text: str, extracted: dict) -> list[dict]:
+    def _run_segmentation(self, cleaned: dict, extracted: dict) -> list[dict]:
         print("Step 3: segmenting document...")
 
-        segments = segment_document(
-            text=cleaned_text,
-            metadata=extracted.get("metadata", {}),
-        )
+        segments = segment_document(cleaned_document=cleaned)
 
         output_path = self.segmented_dir / f"{self.pdf_path.stem}_segments.json"
         self._save_json(output_path, segments)
 
         return segments
 
-    def _run_rule_extraction(self, segment: dict, index: int) -> dict:
+    def _run_rule_extraction(self, segment: dict, index: int, cleaned: dict) -> dict:
         print("Step 4: applying rule-based extraction...")
 
-        normalized_record = apply_rules(segment)
+        normalized_record = apply_rules(
+            segment=segment,
+            cleaned_document=cleaned,
+            segment_index=index,
+        )
 
         output_path = self.normalized_dir / f"{self.pdf_path.stem}_record_{index}.json"
         self._save_json(output_path, normalized_record)
